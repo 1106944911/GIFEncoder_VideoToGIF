@@ -1,0 +1,358 @@
+#include "gif_encoder.h"
+
+// 비디오 정보, GIF 정보 초기화
+GifInfo * init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitle) {
+
+	LOGI("init width, height : %d %d %s", width, height, gifTitle);
+
+	gifInfo = (GifInfo *)malloc(sizeof(GifInfo));
+
+	gifInfo->width = width;
+	gifInfo->height = height;
+	gifInfo->left = 0;
+	gifInfo->top = 0;
+	gifInfo->gifTitle = gifTitle;
+
+	// 디더링
+	gifInfo->useDither = 0;
+
+	gifInfo->gifFile = fopen(gifInfo->gifTitle, "wb");
+	if (gifInfo->gifFile == NULL) {
+		LOGI("파일 열기 실패\n");
+		return -1;
+	}
+	LOGI("파일 열기 성공\n");
+
+	LOGI("초기화 완료 : %d %d %s\n", gifInfo->width, gifInfo->height, gifInfo->gifTitle);
+
+	headerBlock(gifInfo);
+	LOGI("1. Header Block 완료\n");
+
+	LOGI("gifInfo 초기화 확인 : %s", gifInfo->gifTitle);
+
+	logicalScreenDescriptor(gifInfo);
+	LOGI("2. Logical Screen Descriptor 완료\n");
+
+	LOGI("gifInfo 초기화 확인 : %s", gifInfo->gifTitle);
+
+	globalColorTable(gifInfo);
+	LOGI("3. Global Color Table : 팔레트 구성\n");
+
+	LOGI("gifInfo 초기화 확인 : %s", gifInfo->gifTitle);
+
+	return gifInfo;
+}
+
+
+// 1. Header Block
+int headerBlock(GifInfo * gifInfo) {
+	fwrite("GIF89a", 6, 1, gifInfo->gifFile);
+	return 0;
+}
+
+// 2. Logical Screen Descriptor
+int logicalScreenDescriptor(GifInfo * gifInfo) {
+	// 2.1 가로, 세로 화면 크기 입력
+	fwrite(&gifInfo->width, 2, 1, gifInfo->gifFile);
+	fwrite(&gifInfo->height, 2, 1, gifInfo->gifFile);
+
+	// 2.2 Packed Field (Global Color Table Flag, Color Resolution, Sort Flag, Size of Global Color Table)
+	// 전역 색상표
+	uint8_t globalColorTableFlag = 1;
+	// 전역 색상표의 비트 수 (픽셀 수) - 2^(n+1)
+	uint8_t colorResolution = 7;
+	uint8_t sortFlag = 0;
+	// 전역 색상표 크기
+	uint8_t sizeOfGlobalColorTable = 7;
+
+	uint8_t packedField = (globalColorTableFlag << 7) | (colorResolution << 4) | (sortFlag << 3) | sizeOfGlobalColorTable;
+
+	fwrite(&packedField, 1, 1, gifInfo->gifFile);
+
+	// 2.3 Background Color Index
+	uint8_t backgroundColorIndex = 0xFF;
+
+	fwrite(&backgroundColorIndex, 1, 1, gifInfo->gifFile);
+
+	// 2.4 Pixel Aspect Ratio
+	uint8_t pixelAspectRatio = 0;
+
+	fwrite(&pixelAspectRatio, 1, 1, gifInfo->gifFile);
+
+	return 0;
+}
+
+
+// 3. Global Color Table : 팔레트 구성
+// 품질에 영향을 끼침
+// Option 1 : 기본 팔레트
+// Option 2 : 첫 프레임을 따와서 팔레트 만들기
+// Option 3 : 매 프레임을 따와서 팔레트 만들기
+// Option 4 : 씬 넘어가는 걸 파악 할 수 있다면 씬 마다 따와서 팔레트 만들기
+int globalColorTable(GifInfo * gifInfo) {
+	const int R_RANGE = 6;
+	const int G_RANGE = 7;
+	const int B_RANGE = 6;
+
+	uint8_t colorTable[256][3];
+	int32_t idx = 0;
+	for (int32_t r = 0; r < R_RANGE; ++r) {
+		for (int32_t g = 0; g < G_RANGE; ++g) {
+			for (int32_t b = 0; b < B_RANGE; ++b) {
+				colorTable[idx][0] = 255 * r / (R_RANGE - 1);
+				colorTable[idx][1] = 255 * g / (G_RANGE - 1);
+				colorTable[idx][2] = 255 * b / (B_RANGE - 1);
+				++idx;
+			}
+		}
+	}
+	for (; idx < 256; ++idx) {
+		colorTable[idx][0] = 0;
+		colorTable[idx][1] = 0;
+		colorTable[idx][2] = 0;
+	}
+
+	fwrite(colorTable, 256 * 3, 1, gifInfo->gifFile);
+
+	return 0;
+}
+
+
+// 4. Graphics Control Extension : 여기서 부터 프레임 작업
+int graphicsControlExtension(GifInfo * gifInfo, uint16_t delay) {
+
+	uint8_t extensionIntroducer = 0x21;	// Always 0x21
+	uint8_t grapicControlLabel = 0xF9;	// Always 0xF9
+										// ?
+	uint8_t byteSize = 0x04;
+
+	fwrite(&extensionIntroducer, 1, 1, gifInfo->gifFile);
+	fwrite(&grapicControlLabel, 1, 1, gifInfo->gifFile);
+	fwrite(&byteSize, 1, 1, gifInfo->gifFile);
+
+	// ?
+	uint8_t reservedForFutureUse = 0;
+	uint8_t disposalMethod = 2;
+	uint8_t userInputFlag = 0;
+	uint8_t transparentColorFlag = 1;
+	uint8_t packedField = (reservedForFutureUse << 5) | (disposalMethod << 2) | (userInputFlag << 1) | transparentColorFlag;
+	fwrite(&packedField, 1, 1, gifInfo->gifFile);
+
+	uint16_t delayTime = delay;
+	fwrite(&delayTime, 2, 1, gifInfo->gifFile);
+
+	// ?
+	uint8_t transparentColorIndex = 0xFF;
+	fwrite(&transparentColorIndex, 1, 1, gifInfo->gifFile);
+
+	uint8_t blockTerminator = 0;		// Always 0x00
+	fwrite(&blockTerminator, 1, 1, gifInfo->gifFile);
+
+	return 0;
+}
+
+// 5. Image Descriptor
+int imageDescriptor(GifInfo * gifInfo) {
+
+	uint8_t imageSeperator = 0x2C;
+	uint16_t imageLeft = gifInfo->left;
+	uint16_t imageTop = gifInfo->top;
+	uint16_t imageWidth = gifInfo->width;
+	uint16_t imageHeight = gifInfo->height;
+
+	fwrite(&imageSeperator, 1, 1, gifInfo->gifFile);
+	fwrite(&imageLeft, 2, 1, gifInfo->gifFile);
+	fwrite(&imageTop, 2, 1, gifInfo->gifFile);
+	fwrite(&imageWidth, 2, 1, gifInfo->gifFile);
+	fwrite(&imageHeight, 2, 1, gifInfo->gifFile);
+
+	uint8_t localColorTableFlag = 0;
+	uint8_t interlaceFlag = 0;
+	uint8_t sortFlag = 0;
+	uint8_t reservedForFutureUse = 0;
+	uint8_t sizeOfLocalColorTable = 7;
+
+	uint8_t packedField = (localColorTableFlag << 7) | (interlaceFlag << 6) | (sortFlag << 5) | (reservedForFutureUse << 3) | sizeOfLocalColorTable;
+
+	fwrite(&packedField, 1, 1, gifInfo->gifFile);
+
+	return 0;
+}
+
+// 6. Image Data : LZW Image Data
+int imageData(GifInfo * gifInfo, uint8_t * indexStream) {
+
+	int32_t MAX_STACK_SIZE = 4096;
+	int32_t BYTE_NUM = 256;
+
+	uint32_t pixelNum = gifInfo->width * gifInfo->height;
+	uint8_t* endPixels = indexStream + (0 + gifInfo->height - 1) * gifInfo->width + 0 + gifInfo->width;
+	uint8_t dataSize = 8;
+	uint32_t codeSize = dataSize + 1;
+	uint32_t codeMask = (1 << codeSize) - 1;
+	// BitWritingBlock writingBlock;
+	BitWritingBlock * writingBlock;
+	writingBlock = initBitWritingBlock(writingBlock);
+	fwrite(&dataSize, 1, 1, gifInfo->gifFile);
+
+	// vector<uint16_t> lzwInfoHolder;
+	uint16_t * lzwInfoHolder;
+
+	// lzwInfoHolder.resize(MAX_STACK_SIZE * BYTE_NUM);
+	lzwInfoHolder = (uint16_t*)malloc((MAX_STACK_SIZE * BYTE_NUM) * sizeof(uint16_t));
+
+	uint16_t* lzwInfos = &lzwInfoHolder[0];
+
+	indexStream = indexStream + gifInfo->width * 0 + 0;
+	uint8_t* rowStart = indexStream;
+	uint32_t clearCode = 1 << dataSize;
+	// writingBlock.writeBits(clearCode, codeSize);
+	writeBits(writingBlock, clearCode, codeSize);
+	uint32_t infoNum = clearCode + 2;
+	uint16_t current = *indexStream;
+	uint8_t endOfImageData = 0;
+
+	++indexStream;
+	if (gifInfo->width <= indexStream - rowStart) {
+		rowStart = rowStart + gifInfo->width;
+		indexStream = rowStart;
+	}
+
+	uint16_t* next;
+	while (endPixels > indexStream) {
+		next = &lzwInfos[current * BYTE_NUM + *indexStream];
+		if (0 == *next || *next >= MAX_STACK_SIZE) {
+			// writingBlock.writeBits(current, codeSize);
+			writeBits(writingBlock, current, codeSize);
+			*next = infoNum;
+			if (infoNum < MAX_STACK_SIZE) {
+				++infoNum;
+			}
+			else {
+				// writingBlock.writeBits(clearCode, codeSize);
+				writeBits(writingBlock, clearCode, codeSize);
+				infoNum = clearCode + 2;
+				codeSize = dataSize + 1;
+				codeMask = (1 << codeSize) - 1;
+				memset(lzwInfos, 0, MAX_STACK_SIZE * BYTE_NUM * sizeof(uint16_t));
+			}
+			if (codeMask < infoNum - 1 && infoNum < MAX_STACK_SIZE) {
+				++codeSize;
+				codeMask = (1 << codeSize) - 1;
+			}
+			if (endPixels <= indexStream) {
+				break;
+			}
+			current = *indexStream;
+		}
+		else {
+			current = *next;
+		}
+		++indexStream;
+		if (gifInfo->width <= indexStream - rowStart) {
+			rowStart = rowStart + gifInfo->width;
+			indexStream = rowStart;
+		}
+	}
+	// writingBlock.writeBits(current, codeSize);
+	writeBits(writingBlock, current, codeSize);
+	// writingBlock.toFile(gifInfo->gifFile);
+	toFile(writingBlock, gifInfo->gifFile);
+	fwrite(&endOfImageData, 1, 1, gifInfo->gifFile);
+
+	return 0;
+}
+
+
+int finish(GifInfo * gifInfo) {
+	uint8_t trailer = 0x3B;
+
+	fwrite(&trailer, 1, 1, gifInfo->gifFile);
+
+	// 동적 할당 해제 해 줘야 함
+	fclose(gifInfo->gifFile);
+
+	return 0;
+}
+
+int reduceColor(GifInfo * gifInfo, uint32_t* pixels)
+{
+
+	const int R_RANGE = 6;
+	const int G_RANGE = 7;
+	const int B_RANGE = 6;
+
+	LOGI("reduceColor 값 확인 1");
+
+	const int32_t ERROR_PROPAGATION_DIRECTION_NUM = 4;
+	const int32_t ERROR_PROPAGATION_DIRECTION_X[] = { 1, -1, 0, 1 };
+	const int32_t ERROR_PROPAGATION_DIRECTION_Y[] = { 0, 1, 1, 1 };
+	const int32_t ERROR_PROPAGATION_DIRECTION_WEIGHT[] = { 7, 3, 5, 1 };
+	LOGI("reduceColor 값 확인 2");
+
+	uint32_t pixelNum = (gifInfo->width) * (gifInfo->height);
+	LOGI("reduceColor 값 확인 3 : %d", pixelNum);
+
+	uint8_t* dst = (uint8_t*)pixels;
+	LOGI("reduceColor 값 확인 4");
+
+	uint32_t* src = pixels;
+	LOGI("reduceColor 값 확인 5");
+
+	uint32_t* last = src + pixelNum;
+
+	LOGI("reduceColor 값 확인 : %d %d", gifInfo->width, gifInfo->height);
+
+	for (uint32_t y = 0; y < gifInfo->height; ++y) {
+		for (uint32_t x = 0; x < gifInfo->width; ++x) {
+			uint32_t color = *src;
+			if (0 == (color >> 24)) {
+				*dst = 255; // transparent color
+			}
+			else {
+				int16_t r = color & 0xFF;
+				int16_t g = (color >> 8) & 0xFF;
+				int16_t b = (color >> 16) & 0xFF;
+				uint16_t rIdx = (r * (R_RANGE - 1) + 127) / 255;
+				uint16_t gIdx = (g * (G_RANGE - 1) + 127) / 255;
+				uint16_t bIdx = (b * (B_RANGE - 1) + 127) / 255;
+				*dst = (uint8_t)(rIdx * (G_RANGE * B_RANGE) + gIdx * B_RANGE + bIdx);
+
+				if (gifInfo->useDither == 0) {
+					int16_t diffR = r - (255 * rIdx / (R_RANGE - 1));
+					int16_t diffG = g - (255 * gIdx / (G_RANGE - 1));
+					int16_t diffB = b - (255 * bIdx / (B_RANGE - 1));
+					for (int directionId = 0; directionId < ERROR_PROPAGATION_DIRECTION_NUM; ++directionId) {
+						uint32_t* pixel = src + ERROR_PROPAGATION_DIRECTION_X[directionId] + ERROR_PROPAGATION_DIRECTION_Y[directionId] * gifInfo->width;
+						if (x + ERROR_PROPAGATION_DIRECTION_X[directionId] >= gifInfo->width ||
+							y + ERROR_PROPAGATION_DIRECTION_Y[directionId] >= gifInfo->height || 0 == (*src >> 24)) {
+							continue;
+						}
+						int32_t weight = ERROR_PROPAGATION_DIRECTION_WEIGHT[directionId];
+						int32_t dstR = ((int32_t)((*pixel) & 0xFF) + (diffR * weight + 8) / 16);
+						int32_t dstG = (((int32_t)((*pixel) >> 8) & 0xFF) + (diffG * weight + 8) / 16);
+						int32_t dstB = (((int32_t)((*pixel) >> 16) & 0xFF) + (diffB * weight + 8) / 16);
+						int32_t dstA = (int32_t)(*pixel >> 24);
+						int32_t newR = MIN(255, MAX(0, dstR));
+						int32_t newG = MIN(255, MAX(0, dstG));
+						int32_t newB = MIN(255, MAX(0, dstB));
+						*pixel = (dstA << 24) | (newB << 16) | (newG << 8) | newR;
+					}
+				}
+			}
+			++dst;
+			++src;
+		}
+	}
+
+	return 0;
+}
+
+int writeNetscapeExt(GifInfo * gifInfo)
+{
+	//                                   code extCode,                                                            size,       loop count, end
+	const uint8_t netscapeExt[] = { 0x21, 0xFF, 0x0B, 'N', 'E', 'T', 'S', 'C', 'A', 'P', 'E', '2', '.', '0', 0x03, 0x01, 0x00, 0x00, 0x00 };
+	fwrite(netscapeExt, sizeof(netscapeExt), 1, gifInfo->gifFile);
+	return 0;
+}
+
