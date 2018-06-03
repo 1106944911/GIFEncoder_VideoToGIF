@@ -18,7 +18,7 @@ typedef struct _GifInfo {
 	FILE * gifFile;
 } GifInfo;
 
-int init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitle);
+GifInfo * init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitle);
 int header(GifInfo * gifInfo);
 int logicalScreenDescriptor(GifInfo * gifInfo);
 int globalColorTable(GifInfo * gifInfo);

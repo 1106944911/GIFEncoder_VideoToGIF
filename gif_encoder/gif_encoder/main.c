@@ -1,8 +1,14 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+#include <libavutil/avutil.h>
 
 #include "gif_encoder.h"
+
+#pragma comment( lib, "avcodec.lib" )
+#pragma comment( lib, "avformat.lib" )	
+#pragma comment( lib, "swscale.lib" )
+#pragma comment( lib, "avutil.lib" )	
 
 int main() {
 	
@@ -78,10 +84,12 @@ int main() {
 	gifFileName = "Test.gif";
 
 	// Initialize GIF Encoder
-	if(init(gifInfo, pCodecCtx->width, pCodecCtx->height, gifFileName) < 0) 
+	gifInfo = init(gifInfo, pCodecCtx->width, pCodecCtx->height, gifFileName);
+	
+	if(gifInfo == NULL)
 		return -1; // Fail to initialize gif encoder
 
-	//create a bitmap as the buffer for pFrameRGBA
+	// Create a bitmap as the buffer for pFrameRGBA
 	bufferSize = avpicture_get_size(AV_PIX_FMT_RGBA, pCodecCtx->width, pCodecCtx->height);
 	buffer = (void*)malloc(sizeof(uint8_t) * bufferSize);
 
@@ -133,17 +141,17 @@ int main() {
 				memcpy(tempPixels, buffer, pixelsCount);
 
 				reduceColor(gifInfo, tempPixels);
-				// NetscapeExt
 				writeNetscapeExt(gifInfo);
-				// delay / 10
 				graphicsControlExtension(gifInfo, 0);
 				imageDescriptor(gifInfo);
 				imageData(gifInfo, tempPixels);
+
 			}
 		}
 		// Free the packet that was allocated by av_read_frame
 		av_free_packet(&packet);
 	}
+
 	// Free buffer
 	free(buffer);
 	// Free the RGB image

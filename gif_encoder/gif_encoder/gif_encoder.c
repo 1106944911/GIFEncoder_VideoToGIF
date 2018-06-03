@@ -1,6 +1,6 @@
 #include "gif_encoder.h"
 
-int init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitle) {
+GifInfo * init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitle) {
 
 	gifInfo = (GifInfo *)malloc(sizeof(GifInfo));
 
@@ -14,14 +14,14 @@ int init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitl
 	errno_t err;
 	err = fopen_s(&gifInfo->gifFile, gifInfo->gifTitle, "wb");
 	if (err != 0) {
-		return -1;
+		return NULL;
 	}
 
 	header(gifInfo);
 	logicalScreenDescriptor(gifInfo);
 	globalColorTable(gifInfo);
 
-	return 0;
+	return gifInfo;
 }
 
 // Header
@@ -163,7 +163,7 @@ int imageData(GifInfo * gifInfo, uint8_t * indexStream) {
 	uint32_t codeSize = dataSize + 1;
 	uint32_t codeMask = (1 << codeSize) - 1;
 	// BitWritingBlock writingBlock;
-	BitWritingBlock * writingBlock;
+	BitWritingBlock * writingBlock = NULL;
 	writingBlock = initBitWritingBlock(writingBlock);
 	fwrite(&dataSize, 1, 1, gifInfo->gifFile);
 
@@ -261,9 +261,11 @@ int reduceColor(GifInfo * gifInfo, uint32_t* pixels)
 	uint8_t* dst = (uint8_t*)pixels;
 	uint32_t* src = pixels;
 	uint32_t* last = src + pixelNum;
-	
+
 	for (uint32_t y = 0; y < gifInfo->height; ++y) {
 		for (uint32_t x = 0; x < gifInfo->width; ++x) {
+
+
 			uint32_t color = *src;
 			if (0 == (color >> 24)) {
 				*dst = 255; // transparent color
