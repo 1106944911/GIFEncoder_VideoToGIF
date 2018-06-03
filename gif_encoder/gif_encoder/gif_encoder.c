@@ -1,9 +1,6 @@
 #include "gif_encoder.h"
 
-// 비디오 정보, GIF 정보 초기화
-GifInfo * init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitle) {
-
-	LOGI("init width, height : %d %d %s", width, height, gifTitle);
+int init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitle) {
 
 	gifInfo = (GifInfo *)malloc(sizeof(GifInfo));
 
@@ -12,69 +9,49 @@ GifInfo * init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* g
 	gifInfo->left = 0;
 	gifInfo->top = 0;
 	gifInfo->gifTitle = gifTitle;
-
-	// 디더링
 	gifInfo->useDither = 0;
 
-	gifInfo->gifFile = fopen(gifInfo->gifTitle, "wb");
-	if (gifInfo->gifFile == NULL) {
-		LOGI("파일 열기 실패\n");
+	errno_t err;
+	err = fopen_s(&gifInfo->gifFile, gifInfo->gifTitle, "wb");
+	if (err != 0) {
 		return -1;
 	}
-	LOGI("파일 열기 성공\n");
 
-	LOGI("초기화 완료 : %d %d %s\n", gifInfo->width, gifInfo->height, gifInfo->gifTitle);
-
-	headerBlock(gifInfo);
-	LOGI("1. Header Block 완료\n");
-
-	LOGI("gifInfo 초기화 확인 : %s", gifInfo->gifTitle);
-
+	header(gifInfo);
 	logicalScreenDescriptor(gifInfo);
-	LOGI("2. Logical Screen Descriptor 완료\n");
-
-	LOGI("gifInfo 초기화 확인 : %s", gifInfo->gifTitle);
-
 	globalColorTable(gifInfo);
-	LOGI("3. Global Color Table : 팔레트 구성\n");
 
-	LOGI("gifInfo 초기화 확인 : %s", gifInfo->gifTitle);
-
-	return gifInfo;
+	return 0;
 }
 
-
-// 1. Header Block
-int headerBlock(GifInfo * gifInfo) {
+// Header
+int header(GifInfo * gifInfo) {
 	fwrite("GIF89a", 6, 1, gifInfo->gifFile);
 	return 0;
 }
 
-// 2. Logical Screen Descriptor
+// Logical Screen Descriptor
 int logicalScreenDescriptor(GifInfo * gifInfo) {
-	// 2.1 가로, 세로 화면 크기 입력
+	// Canvas Width, Canvas Height
 	fwrite(&gifInfo->width, 2, 1, gifInfo->gifFile);
 	fwrite(&gifInfo->height, 2, 1, gifInfo->gifFile);
 
-	// 2.2 Packed Field (Global Color Table Flag, Color Resolution, Sort Flag, Size of Global Color Table)
-	// 전역 색상표
+	// Packed Field (Global Color Table Flag, Color Resolution, Sort Flag, Size of Global Color Table)
 	uint8_t globalColorTableFlag = 1;
-	// 전역 색상표의 비트 수 (픽셀 수) - 2^(n+1)
 	uint8_t colorResolution = 7;
 	uint8_t sortFlag = 0;
-	// 전역 색상표 크기
 	uint8_t sizeOfGlobalColorTable = 7;
 
 	uint8_t packedField = (globalColorTableFlag << 7) | (colorResolution << 4) | (sortFlag << 3) | sizeOfGlobalColorTable;
 
 	fwrite(&packedField, 1, 1, gifInfo->gifFile);
 
-	// 2.3 Background Color Index
+	// Background Color Index
 	uint8_t backgroundColorIndex = 0xFF;
 
 	fwrite(&backgroundColorIndex, 1, 1, gifInfo->gifFile);
 
-	// 2.4 Pixel Aspect Ratio
+	// Pixel Aspect Ratio
 	uint8_t pixelAspectRatio = 0;
 
 	fwrite(&pixelAspectRatio, 1, 1, gifInfo->gifFile);
@@ -83,12 +60,7 @@ int logicalScreenDescriptor(GifInfo * gifInfo) {
 }
 
 
-// 3. Global Color Table : 팔레트 구성
-// 품질에 영향을 끼침
-// Option 1 : 기본 팔레트
-// Option 2 : 첫 프레임을 따와서 팔레트 만들기
-// Option 3 : 매 프레임을 따와서 팔레트 만들기
-// Option 4 : 씬 넘어가는 걸 파악 할 수 있다면 씬 마다 따와서 팔레트 만들기
+// Global Color Table
 int globalColorTable(GifInfo * gifInfo) {
 	const int R_RANGE = 6;
 	const int G_RANGE = 7;
@@ -118,7 +90,7 @@ int globalColorTable(GifInfo * gifInfo) {
 }
 
 
-// 4. Graphics Control Extension : 여기서 부터 프레임 작업
+// Graphics Control Extension
 int graphicsControlExtension(GifInfo * gifInfo, uint16_t delay) {
 
 	uint8_t extensionIntroducer = 0x21;	// Always 0x21
@@ -151,7 +123,7 @@ int graphicsControlExtension(GifInfo * gifInfo, uint16_t delay) {
 	return 0;
 }
 
-// 5. Image Descriptor
+// Image Descriptor
 int imageDescriptor(GifInfo * gifInfo) {
 
 	uint8_t imageSeperator = 0x2C;
@@ -179,7 +151,7 @@ int imageDescriptor(GifInfo * gifInfo) {
 	return 0;
 }
 
-// 6. Image Data : LZW Image Data
+// Image Data : LZW Image Data
 int imageData(GifInfo * gifInfo, uint8_t * indexStream) {
 
 	int32_t MAX_STACK_SIZE = 4096;
@@ -268,41 +240,28 @@ int finish(GifInfo * gifInfo) {
 	uint8_t trailer = 0x3B;
 
 	fwrite(&trailer, 1, 1, gifInfo->gifFile);
-
-	// 동적 할당 해제 해 줘야 함
 	fclose(gifInfo->gifFile);
+	free(gifInfo);
 
 	return 0;
 }
 
 int reduceColor(GifInfo * gifInfo, uint32_t* pixels)
 {
-
 	const int R_RANGE = 6;
 	const int G_RANGE = 7;
 	const int B_RANGE = 6;
-
-	LOGI("reduceColor 값 확인 1");
 
 	const int32_t ERROR_PROPAGATION_DIRECTION_NUM = 4;
 	const int32_t ERROR_PROPAGATION_DIRECTION_X[] = { 1, -1, 0, 1 };
 	const int32_t ERROR_PROPAGATION_DIRECTION_Y[] = { 0, 1, 1, 1 };
 	const int32_t ERROR_PROPAGATION_DIRECTION_WEIGHT[] = { 7, 3, 5, 1 };
-	LOGI("reduceColor 값 확인 2");
-
+	
 	uint32_t pixelNum = (gifInfo->width) * (gifInfo->height);
-	LOGI("reduceColor 값 확인 3 : %d", pixelNum);
-
 	uint8_t* dst = (uint8_t*)pixels;
-	LOGI("reduceColor 값 확인 4");
-
 	uint32_t* src = pixels;
-	LOGI("reduceColor 값 확인 5");
-
 	uint32_t* last = src + pixelNum;
-
-	LOGI("reduceColor 값 확인 : %d %d", gifInfo->width, gifInfo->height);
-
+	
 	for (uint32_t y = 0; y < gifInfo->height; ++y) {
 		for (uint32_t x = 0; x < gifInfo->width; ++x) {
 			uint32_t color = *src;

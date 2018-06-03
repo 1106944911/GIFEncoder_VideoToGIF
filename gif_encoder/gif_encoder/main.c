@@ -1,50 +1,45 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+
 #include "gif_encoder.h"
 
 int main() {
+	
+	AVFormatContext			*pFormatCtx = NULL;
+	int						i, videoStream;
+	AVCodecContext			*pCodecCtx = NULL;
+	AVCodec					*pCodec = NULL;
+	AVFrame					*pFrame = NULL;
+	AVFrame					*pFrameRGBA = NULL;
+	AVPacket				packet;
+	int						frameFinished;
+	void* 					buffer;
+	int						bufferSize;
+	void*					bitmapBuffer;
 
-	GifInfo * gifInfo = NULL;
-	char * gifFileName = "GIF_TEST.gif";
+	AVDictionary			*optionsDict = NULL;
+	struct SwsContext		*sws_ctx = NULL;
+	char					*videoFileName;
 
-	// GIF 인코더 초기화
-	gifInfo = init(gifInfo, 100, 100, gifFileName);
-
-	if (gifInfo == NULL) {
-		return -1;
-	}
-
-	AVFormatContext *pFormatCtx = NULL;
-	int             i, videoStream;
-	AVCodecContext  *pCodecCtx = NULL;
-	AVCodec         *pCodec = NULL;
-	AVFrame         *pFrame = NULL;
-	AVFrame         *pFrameRGBA = NULL;
-	AVPacket        packet;
-	int             frameFinished;
-	jobject			bitmap;
-	void* 			buffer;
-
-	AVDictionary    *optionsDict = NULL;
-	struct SwsContext      *sws_ctx = NULL;
-	char *videoFileName;
+	GifInfo					*gifInfo = NULL;
+	char					*gifFileName = NULL;
 
 	// Register all formats and codecs
 	av_register_all();
 
-	//get C string from JNI jstring
-	videoFileName = (char *)(*pEnv)->GetStringUTFChars(pEnv, pFileName, NULL);
+	// Video File Name
+	videoFileName = "Test.mp4";
 
 	// Open video file
 	if (avformat_open_input(&pFormatCtx, videoFileName, NULL, NULL) != 0)
 		return -1; // Couldn't open file
 
-				   // Retrieve stream information
+	// Retrieve stream information
 	if (avformat_find_stream_info(pFormatCtx, NULL)<0)
 		return -1; // Couldn't find stream information
 
-				   // Dump information about file onto standard error
+	// Dump information about file onto standard error
 	av_dump_format(pFormatCtx, 0, videoFileName, 0);
 
 	// Find the first video stream
@@ -58,7 +53,7 @@ int main() {
 	if (videoStream == -1)
 		return -1; // Didn't find a video stream
 
-				   // Get a pointer to the codec context for the video stream
+	// Get a pointer to the codec context for the video stream
 	pCodecCtx = pFormatCtx->streams[videoStream]->codec;
 
 	// Find the decoder for the video stream
@@ -71,7 +66,7 @@ int main() {
 	if (avcodec_open2(pCodecCtx, pCodec, &optionsDict)<0)
 		return -1; // Could not open codec
 
-				   // Allocate video frame
+	// Allocate video frame
 	pFrame = av_frame_alloc();
 
 	// Allocate an AVFrame structure
@@ -79,10 +74,17 @@ int main() {
 	if (pFrameRGBA == NULL)
 		return -1;
 
+	// GIF File Name
+	gifFileName = "Test.gif";
+
+	// Initialize GIF Encoder
+	if(init(gifInfo, pCodecCtx->width, pCodecCtx->height, gifFileName) < 0) 
+		return -1; // Fail to initialize gif encoder
+
 	//create a bitmap as the buffer for pFrameRGBA
-	bitmap = getBitmap(pEnv, pCodecCtx->width, pCodecCtx->height);
-	if (AndroidBitmap_lockPixels(pEnv, bitmap, &buffer) < 0)
-		return -1;
+	bufferSize = avpicture_get_size(AV_PIX_FMT_RGBA, pCodecCtx->width, pCodecCtx->height);
+	buffer = (void*)malloc(sizeof(uint8_t) * bufferSize);
+
 	//get the scaling context
 	sws_ctx = sws_getContext
 	(
@@ -105,7 +107,6 @@ int main() {
 		pCodecCtx->width, pCodecCtx->height);
 
 	// Read frames and save first five frames to disk
-	i = 0;
 	while (av_read_frame(pFormatCtx, &packet) >= 0) {
 		// Is this a packet from the video stream?
 		if (packet.stream_index == videoStream) {
@@ -131,48 +132,29 @@ int main() {
 				int pixelsCount = stride * pCodecCtx->height;
 				memcpy(tempPixels, buffer, pixelsCount);
 
-				LOGI("Add Frame %d Start", i);
-
-				LOGI("Start ReduceColor\n");
 				reduceColor(gifInfo, tempPixels);
-				LOGI("Done ReduceColor\n");
-
 				// NetscapeExt
 				writeNetscapeExt(gifInfo);
-				LOGI("Netscape\n");
-				// 매개변수는 딜레이 타임
 				// delay / 10
 				graphicsControlExtension(gifInfo, 0);
-				LOGI("4. Graphics Control Extension\n");
-
 				imageDescriptor(gifInfo);
-				LOGI("5. Image Descriptor\n");
-
 				imageData(gifInfo, tempPixels);
-				LOGI("6. Image Data\n");
-
-				LOGI("Add frame %d Done", i);
 			}
 		}
 		// Free the packet that was allocated by av_read_frame
 		av_free_packet(&packet);
 	}
-
-	//unlock the bitmap
-	AndroidBitmap_unlockPixels(pEnv, bitmap);
-
+	// Free buffer
+	free(buffer);
 	// Free the RGB image
 	av_free(pFrameRGBA);
-
 	// Free the YUV frame
 	av_free(pFrame);
-
 	// Close the codec
 	avcodec_close(pCodecCtx);
-
 	// Close the video file
 	avformat_close_input(&pFormatCtx);
-
+	
 	finish(gifInfo);
 
 	return 0;
