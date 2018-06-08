@@ -140,7 +140,7 @@ int main() {
 				int pixelsCount = stride * pCodecCtx->height;
 				memcpy(tempPixels, buffer, pixelsCount);
 
-				reduceColor(gifInfo, tempPixels);
+				basicReduceColor(gifInfo, tempPixels);
 				writeNetscapeExt(gifInfo);
 				graphicsControlExtension(gifInfo, 0);
 				imageDescriptor(gifInfo);

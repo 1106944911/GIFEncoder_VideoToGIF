@@ -21,12 +21,12 @@ typedef struct _GifInfo {
 GifInfo * init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* gifTitle);
 int header(GifInfo * gifInfo);
 int logicalScreenDescriptor(GifInfo * gifInfo);
-int globalColorTable(GifInfo * gifInfo);
+int basicGlobalColorTable(GifInfo * gifInfo);
 int graphicsControlExtension(GifInfo * gifInfo, uint16_t delay);
 int imageDescriptor(GifInfo * gifInfo);
 int imageData(GifInfo * gifInfo, uint8_t * indexStream);
 int finish(GifInfo * gifInfo);
-int reduceColor(GifInfo * gifInfo, uint32_t* pixels);
+int basicReduceColor(GifInfo * gifInfo, uint32_t* pixels);
 int writeNetscapeExt(GifInfo * gifInfo);
 
 #endif GIF_ENCODER_H

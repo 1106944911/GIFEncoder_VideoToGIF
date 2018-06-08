@@ -19,7 +19,7 @@ GifInfo * init(GifInfo * gifInfo, uint16_t width, uint16_t height, const char* g
 
 	header(gifInfo);
 	logicalScreenDescriptor(gifInfo);
-	globalColorTable(gifInfo);
+	basicGlobalColorTable(gifInfo);
 
 	return gifInfo;
 }
@@ -61,7 +61,7 @@ int logicalScreenDescriptor(GifInfo * gifInfo) {
 
 
 // Global Color Table
-int globalColorTable(GifInfo * gifInfo) {
+int basicGlobalColorTable(GifInfo * gifInfo) {
 	const int R_RANGE = 6;
 	const int G_RANGE = 7;
 	const int B_RANGE = 6;
@@ -93,16 +93,15 @@ int globalColorTable(GifInfo * gifInfo) {
 // Graphics Control Extension
 int graphicsControlExtension(GifInfo * gifInfo, uint16_t delay) {
 
-	uint8_t extensionIntroducer = 0x21;	// Always 0x21
-	uint8_t grapicControlLabel = 0xF9;	// Always 0xF9
-										// ?
-	uint8_t byteSize = 0x04;
+	uint8_t extensionIntroducer = 0x21;	// Extension Introducer (Always 0x21)
+	uint8_t grapicControlLabel = 0xF9;	// Graphic Control Label (Always 0xF9)
+	uint8_t byteSize = 0x04;			// Byte Size (Fixed value 0x04)
 
 	fwrite(&extensionIntroducer, 1, 1, gifInfo->gifFile);
 	fwrite(&grapicControlLabel, 1, 1, gifInfo->gifFile);
 	fwrite(&byteSize, 1, 1, gifInfo->gifFile);
 
-	// ?
+	// Packed Field
 	uint8_t reservedForFutureUse = 0;
 	uint8_t disposalMethod = 2;
 	uint8_t userInputFlag = 0;
@@ -113,11 +112,10 @@ int graphicsControlExtension(GifInfo * gifInfo, uint16_t delay) {
 	uint16_t delayTime = delay;
 	fwrite(&delayTime, 2, 1, gifInfo->gifFile);
 
-	// ?
-	uint8_t transparentColorIndex = 0xFF;
+	uint8_t transparentColorIndex = 0xFF;	
 	fwrite(&transparentColorIndex, 1, 1, gifInfo->gifFile);
 
-	uint8_t blockTerminator = 0;		// Always 0x00
+	uint8_t blockTerminator = 0;		// Block Terminator (Always 0x00)
 	fwrite(&blockTerminator, 1, 1, gifInfo->gifFile);
 
 	return 0;
@@ -126,9 +124,9 @@ int graphicsControlExtension(GifInfo * gifInfo, uint16_t delay) {
 // Image Descriptor
 int imageDescriptor(GifInfo * gifInfo) {
 
-	uint8_t imageSeperator = 0x2C;
-	uint16_t imageLeft = gifInfo->left;
-	uint16_t imageTop = gifInfo->top;
+	uint8_t imageSeperator = 0x2C;			// Image Seperator (Always 2C)
+	uint16_t imageLeft = gifInfo->left;		// Usually ignored by modern viewers and browsers
+	uint16_t imageTop = gifInfo->top;		// Usually ignored by modern viewers and browsers
 	uint16_t imageWidth = gifInfo->width;
 	uint16_t imageHeight = gifInfo->height;
 
@@ -138,11 +136,12 @@ int imageDescriptor(GifInfo * gifInfo) {
 	fwrite(&imageWidth, 2, 1, gifInfo->gifFile);
 	fwrite(&imageHeight, 2, 1, gifInfo->gifFile);
 
+	// Packed Field
 	uint8_t localColorTableFlag = 0;
 	uint8_t interlaceFlag = 0;
 	uint8_t sortFlag = 0;
 	uint8_t reservedForFutureUse = 0;
-	uint8_t sizeOfLocalColorTable = 7;
+	uint8_t sizeOfLocalColorTable = 0;
 
 	uint8_t packedField = (localColorTableFlag << 7) | (interlaceFlag << 6) | (sortFlag << 5) | (reservedForFutureUse << 3) | sizeOfLocalColorTable;
 
@@ -162,15 +161,11 @@ int imageData(GifInfo * gifInfo, uint8_t * indexStream) {
 	uint8_t dataSize = 8;
 	uint32_t codeSize = dataSize + 1;
 	uint32_t codeMask = (1 << codeSize) - 1;
-	// BitWritingBlock writingBlock;
 	BitWritingBlock * writingBlock = NULL;
 	writingBlock = initBitWritingBlock(writingBlock);
 	fwrite(&dataSize, 1, 1, gifInfo->gifFile);
 
-	// vector<uint16_t> lzwInfoHolder;
 	uint16_t * lzwInfoHolder;
-
-	// lzwInfoHolder.resize(MAX_STACK_SIZE * BYTE_NUM);
 	lzwInfoHolder = (uint16_t*)malloc((MAX_STACK_SIZE * BYTE_NUM) * sizeof(uint16_t));
 
 	uint16_t* lzwInfos = &lzwInfoHolder[0];
@@ -178,7 +173,6 @@ int imageData(GifInfo * gifInfo, uint8_t * indexStream) {
 	indexStream = indexStream + gifInfo->width * 0 + 0;
 	uint8_t* rowStart = indexStream;
 	uint32_t clearCode = 1 << dataSize;
-	// writingBlock.writeBits(clearCode, codeSize);
 	writeBits(writingBlock, clearCode, codeSize);
 	uint32_t infoNum = clearCode + 2;
 	uint16_t current = *indexStream;
@@ -194,14 +188,12 @@ int imageData(GifInfo * gifInfo, uint8_t * indexStream) {
 	while (endPixels > indexStream) {
 		next = &lzwInfos[current * BYTE_NUM + *indexStream];
 		if (0 == *next || *next >= MAX_STACK_SIZE) {
-			// writingBlock.writeBits(current, codeSize);
 			writeBits(writingBlock, current, codeSize);
 			*next = infoNum;
 			if (infoNum < MAX_STACK_SIZE) {
 				++infoNum;
 			}
 			else {
-				// writingBlock.writeBits(clearCode, codeSize);
 				writeBits(writingBlock, clearCode, codeSize);
 				infoNum = clearCode + 2;
 				codeSize = dataSize + 1;
@@ -226,9 +218,7 @@ int imageData(GifInfo * gifInfo, uint8_t * indexStream) {
 			indexStream = rowStart;
 		}
 	}
-	// writingBlock.writeBits(current, codeSize);
 	writeBits(writingBlock, current, codeSize);
-	// writingBlock.toFile(gifInfo->gifFile);
 	toFile(writingBlock, gifInfo->gifFile);
 	fwrite(&endOfImageData, 1, 1, gifInfo->gifFile);
 
@@ -246,7 +236,7 @@ int finish(GifInfo * gifInfo) {
 	return 0;
 }
 
-int reduceColor(GifInfo * gifInfo, uint32_t* pixels)
+int basicReduceColor(GifInfo * gifInfo, uint32_t* pixels)
 {
 	const int R_RANGE = 6;
 	const int G_RANGE = 7;
@@ -264,8 +254,6 @@ int reduceColor(GifInfo * gifInfo, uint32_t* pixels)
 
 	for (uint32_t y = 0; y < gifInfo->height; ++y) {
 		for (uint32_t x = 0; x < gifInfo->width; ++x) {
-
-
 			uint32_t color = *src;
 			if (0 == (color >> 24)) {
 				*dst = 255; // transparent color
@@ -311,7 +299,7 @@ int reduceColor(GifInfo * gifInfo, uint32_t* pixels)
 
 int writeNetscapeExt(GifInfo * gifInfo)
 {
-	//                                   code extCode,                                                            size,       loop count, end
+	//                              code extCode,                                                            size,       loop count, end
 	const uint8_t netscapeExt[] = { 0x21, 0xFF, 0x0B, 'N', 'E', 'T', 'S', 'C', 'A', 'P', 'E', '2', '.', '0', 0x03, 0x01, 0x00, 0x00, 0x00 };
 	fwrite(netscapeExt, sizeof(netscapeExt), 1, gifInfo->gifFile);
 	return 0;
